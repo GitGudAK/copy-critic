@@ -1,14 +1,16 @@
 
+
 export interface Persona {
   id: string;
   name: string;
-  role: 'Copywriter' | 'Marketer' | 'Creative Director' | 'Growth Hacker';
+  role: string;
+  bias: string;
   specialty: string;
   yearsExperience: number;
-  bias: string; // e.g., "Prefers punchy, short copy", "Loves storytelling"
   avatarId: number;
 }
 
+// Matches the Excel columns exactly
 export interface ExcelRow {
   Test: string;
   Prompt: string;
@@ -19,31 +21,7 @@ export interface ExcelRow {
   'Gemini': string;
 }
 
-export interface SegmentAnalysis {
-  name: string;
-  winner: string;
-  reason: string;
-}
-
-export interface VoteResult {
-  winner: string;
-  counts: {
-    'Writer (Agent Mode)': number;
-    'Writer (Chat mode)': number;
-    'GPT 5.2': number;
-    'GS PeM': number;
-    'Gemini': number;
-  };
-  reasoning: string;
-  segments: SegmentAnalysis[];
-}
-
-export interface ProcessedRow extends ExcelRow {
-  id: string;
-  status: 'pending' | 'analyzing' | 'completed';
-  result?: VoteResult;
-}
-
+// The specific keys for the models
 export type ModelKey = 'Writer (Agent Mode)' | 'Writer (Chat mode)' | 'GPT 5.2' | 'GS PeM' | 'Gemini';
 
 export const MODELS: ModelKey[] = [
@@ -61,3 +39,52 @@ export const MODEL_COLORS: Record<ModelKey, string> = {
   'GS PeM': '#f59e0b', // Amber
   'Gemini': '#3b82f6', // Blue
 };
+
+export interface Vote {
+  personaName: string;
+  personaRole: string;
+  votedFor: ModelKey;
+  reason: string;
+}
+
+export interface IndividualVote {
+  personaId: string;
+  personaName: string;
+  personaRole: string;
+  vote: ModelKey;
+  comment: string;
+}
+
+export interface AnalysisResult {
+  winner: ModelKey;
+  counts: Record<ModelKey, number>;
+  votes: Vote[];
+  summary: string;
+}
+
+export interface SegmentAnalysis {
+  name: string;
+  winner: string;
+  reason: string;
+}
+
+export interface VoteResult {
+  winner: ModelKey;
+  counts: Record<ModelKey, number>;
+  votes?: Vote[];
+  reasoning?: string;
+  segments?: SegmentAnalysis[];
+}
+
+export interface ReportItem extends ExcelRow {
+  id: string;
+  status: 'idle' | 'running' | 'done' | 'error';
+  analysis?: AnalysisResult;
+  errorMessage?: string;
+}
+
+export interface ProcessedRow extends ExcelRow {
+  id: string;
+  status: 'completed' | 'pending' | 'failed';
+  result?: VoteResult;
+}

@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { ProcessedRow, MODEL_COLORS, ModelKey, MODELS } from '../types';
-import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, LabelList } from 'recharts';
 import { Trophy, CheckCircle2, User, FileText } from 'lucide-react';
 
 interface PdfReportProps {
@@ -50,12 +51,13 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                     <tbody>
                         {completedRows.map(row => {
                             const winner = row.result!.winner as ModelKey;
-                            const voteCount = row.result!.counts[winner];
+                            // Safe access to counts
+                            const voteCount = row.result?.counts?.[winner] ?? 0;
                             return (
                                 <tr key={row.id} className="border-b border-slate-100">
                                     <td className="p-3 font-medium text-slate-800">{row.Test}</td>
                                     <td className="p-3">
-                                        <span className="px-2 py-1 rounded text-xs font-bold text-white" style={{ backgroundColor: MODEL_COLORS[winner] }}>
+                                        <span className="px-2 py-1 rounded text-xs font-bold text-white" style={{ backgroundColor: MODEL_COLORS[winner] || '#94a3b8' }}>
                                             {winner}
                                         </span>
                                     </td>
@@ -71,7 +73,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
         {/* Detailed Results */}
         <div className="space-y-12">
             {completedRows.map((row, idx) => (
-                <div key={row.id} className="break-inside-avoid">
+                <div key={row.id} className="break-inside-avoid page-break-auto">
                     <div className="flex items-center gap-3 mb-4 pb-2 border-b border-slate-200">
                         <span className="text-2xl font-bold text-slate-300">#{idx + 1}</span>
                         <div>
@@ -91,16 +93,17 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                              <div className="h-40 w-full mb-4">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart 
-                                        data={MODELS.map(m => ({ name: m, votes: row.result!.counts[m] }))} 
+                                        data={MODELS.map(m => ({ name: m, votes: row.result?.counts?.[m] ?? 0 }))} 
                                         layout="vertical"
-                                        margin={{ left: 50 }}
+                                        margin={{ left: 50, right: 20 }}
                                     >
                                         <XAxis type="number" hide />
                                         <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10}} />
-                                        <Bar dataKey="votes" barSize={20} isAnimationActive={false}>
+                                        <Bar dataKey="votes" barSize={20} isAnimationActive={false} minPointSize={2}>
                                             {MODELS.map((m, i) => (
                                                 <Cell key={i} fill={MODEL_COLORS[m]} />
                                             ))}
+                                            <LabelList dataKey="votes" position="right" fontSize={10} formatter={(v: number) => `${v}%`} />
                                         </Bar>
                                     </BarChart>
                                 </ResponsiveContainer>
@@ -120,24 +123,40 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                         </div>
                     </div>
 
-                    {/* Segments */}
-                    <div>
+                    {/* Detailed Voting Table */}
+                    <div className="mt-8">
                         <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
                             <User className="w-4 h-4" />
-                            Segment Breakdown
+                            Individual Persona Votes (100)
                         </h4>
-                        <div className="grid grid-cols-2 gap-3">
-                            {row.result?.segments?.map((seg, i) => (
-                                <div key={i} className="p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="font-bold text-xs text-slate-900">{seg.name}</span>
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: MODEL_COLORS[seg.winner as ModelKey] || '#94a3b8' }}>
-                                            {seg.winner}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-slate-600 leading-snug">{seg.reason}</p>
-                                </div>
-                            ))}
+                        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                            <table className="w-full text-xs">
+                                <thead className="bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        <th className="p-2 text-left font-semibold text-slate-600 w-1/4">Persona</th>
+                                        <th className="p-2 text-left font-semibold text-slate-600 w-1/4">Role</th>
+                                        <th className="p-2 text-left font-semibold text-slate-600 w-1/6">Vote</th>
+                                        <th className="p-2 text-left font-semibold text-slate-600">Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {row.result?.votes?.map((vote, vIdx) => (
+                                        <tr key={vIdx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                                            <td className="p-2 font-medium text-slate-800">{vote.personaName}</td>
+                                            <td className="p-2 text-slate-500">{vote.personaRole}</td>
+                                            <td className="p-2">
+                                                <span 
+                                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap"
+                                                    style={{ backgroundColor: MODEL_COLORS[vote.votedFor] }}
+                                                >
+                                                    {vote.votedFor.replace('Writer ', '').replace('Mode', '')}
+                                                </span>
+                                            </td>
+                                            <td className="p-2 text-slate-600 italic">"{vote.reason}"</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

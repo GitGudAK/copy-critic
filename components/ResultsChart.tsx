@@ -11,7 +11,7 @@ export const ResultsChart: React.FC<ResultsChartProps> = ({ result }) => {
   const data = MODELS.map(key => ({
     name: key.replace('Writer ', '').replace('Mode', ''), // Shorten names for chart
     fullName: key,
-    votes: result.counts[key],
+    votes: result.counts?.[key] ?? 0, // Safe access
     fill: MODEL_COLORS[key]
   }));
 
