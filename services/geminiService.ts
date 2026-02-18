@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { Persona, AnalysisResult, ModelKey, MODELS, Vote } from '../types';
+import { Persona, AnalysisResult, Vote, MetaAnalysisResult, ReportItem } from '../types';
 import { getStaticPersonas } from './staticData';
 
 const getAiClient = () => {
@@ -74,36 +74,30 @@ export const generatePersonas = async (useLiveAi: boolean = false): Promise<Pers
 // 2. RUN VOTING SESSION
 export const runVotingSession = async (
   promptText: string,
-  candidates: Record<ModelKey, string>,
+  candidates: Record<string, string>,
   personas: Persona[]
 ): Promise<AnalysisResult> => {
   const ai = getAiClient();
+  const modelNames = Object.keys(candidates);
+  const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-  const ID_MAP: Record<string, ModelKey> = {
-    'A': 'Writer (Agent Mode)',
-    'B': 'Writer (Chat mode)',
-    'C': 'GPT 5.2',
-    'D': 'GS PeM',
-    'E': 'Gemini'
-  };
+  // Dynamic Mapping
+  const ID_MAP: Record<string, string> = {};
+  const REVERSE_MAP: Record<string, string> = {};
 
-  const REVERSE_MAP: Record<ModelKey, string> = {
-    'Writer (Agent Mode)': 'A',
-    'Writer (Chat mode)': 'B',
-    'GPT 5.2': 'C',
-    'GS PeM': 'D',
-    'Gemini': 'E'
-  };
+  modelNames.forEach((name, index) => {
+    const letter = LETTERS[index] || `M${index}`;
+    ID_MAP[letter] = name;
+    REVERSE_MAP[name] = letter;
+  });
 
   let candidateText = "";
   for (const [key, val] of Object.entries(candidates)) {
     const safeVal = val || "[No content generated]";
-    candidateText += `MODEL ${REVERSE_MAP[key as ModelKey]}:\n${safeVal}\n\n`;
+    candidateText += `MODEL ${REVERSE_MAP[key]}: \n${safeVal}\n\n`;
   }
 
   // --- BATCHING STRATEGY ---
-  // Reduced to 10 for higher reliability.
-  // 100 personas / 10 = 10 requests total.
   const BATCH_SIZE = 10;
   const personaBatches = [];
   for (let i = 0; i < personas.length; i += BATCH_SIZE) {
@@ -111,8 +105,6 @@ export const runVotingSession = async (
   }
 
   try {
-    // Use pMap to limit concurrency to 3 parallel requests to avoid Rate Limits (429)
-    // and server overloads, which are common causes of "failures".
     const results = await pMap(personaBatches, async (batchPersonas, batchIndex) => {
         const globalStartIndex = batchIndex * BATCH_SIZE;
 
@@ -120,9 +112,11 @@ export const runVotingSession = async (
             `#${i} ${p.name} (${p.role}): ${p.bias}`
         ).join('\n');
 
+        const availableOptions = modelNames.map(m => REVERSE_MAP[m]).join('|');
+
         const systemInstruction = `
             You are simulating a voting panel of marketing personas.
-            Task: Read the User Prompt and 5 Model Outputs (A-E).
+            Task: Read the User Prompt and the Model Outputs (${availableOptions}).
             
             1. Analyze texts based on persona bias.
             2. Decide which model wrote the best copy for EACH persona (#0 to #${batchPersonas.length - 1}).
@@ -131,7 +125,7 @@ export const runVotingSession = async (
             OUTPUT FORMAT:
             Return ONLY a JSON object.
             keys: "summary" (string), "votes" (array).
-            votes item: { "i": number (0-${batchPersonas.length - 1}), "c": "A"|"B"|"C"|"D"|"E", "r": "max 6 words" }
+            votes item: { "i": number (0-${batchPersonas.length - 1}), "c": "${availableOptions}", "r": "max 6 words" }
         `;
 
         const userPrompt = `
@@ -147,10 +141,9 @@ export const runVotingSession = async (
         return fetchWithRetry(async () => {
             const response: any = await Promise.race([
                 ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
+                  model: 'gemini-3-pro-preview',
                   config: {
                     systemInstruction: systemInstruction,
-                    // CRITICAL: Set BLOCK_NONE to prevent false positives on "marketing" language
                     safetySettings: [
                       { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
                       { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -179,11 +172,10 @@ export const runVotingSession = async (
                   },
                   contents: userPrompt
                 }),
-                timeoutPromise(60000) // 60s is enough for 10 items
+                timeoutPromise(60000) 
             ]);
     
             if (!response.text) {
-                // Check if blocked
                 if (response.promptFeedback?.blockReason) {
                     throw new Error(`Blocked: ${response.promptFeedback.blockReason}`);
                 }
@@ -198,9 +190,10 @@ export const runVotingSession = async (
                 throw new Error("Invalid JSON response");
             }
             
+            // Map votes back using the dynamic ID_MAP
             const mappedVotes = (json.votes || []).map((v: any) => ({
                 personaIndex: (v.i !== undefined ? v.i : -1) + globalStartIndex,
-                choice: v.c || 'E',
+                choice: v.c || REVERSE_MAP[modelNames[0]], // Default to first model if invalid
                 reason: v.r || '...'
             }));
     
@@ -208,32 +201,28 @@ export const runVotingSession = async (
                 votes: mappedVotes,
                 summary: json.summary || ""
             };
-        }, 2, 2000); // Retry 2 times, start with 2s delay
-    }, 3); // Max concurrency: 3 requests at a time
+        }, 2, 2000); 
+    }, 3); 
 
     // --- AGGREGATION ---
     const allVotes: any[] = results.flatMap(r => r.votes);
     const summary = results[0]?.summary || "Analysis completed.";
 
-    const counts: Record<ModelKey, number> = {
-      'Writer (Agent Mode)': 0,
-      'Writer (Chat mode)': 0,
-      'GPT 5.2': 0,
-      'GS PeM': 0,
-      'Gemini': 0
-    };
+    const counts: Record<string, number> = {};
+    modelNames.forEach(m => counts[m] = 0);
 
     const finalVotes: Vote[] = [];
 
     allVotes.forEach((v: any) => {
-      let choiceChar = v.choice?.toString().toUpperCase().trim().charAt(0) || '';
-      const match = v.choice?.toString().toUpperCase().match(/\b([ABCDE])\b/);
-      if (match) choiceChar = match[1];
+      let choiceChar = v.choice?.toString().toUpperCase().trim() || '';
+      // Extract just the letter if model hallucinates extra text
+      const match = choiceChar.match(/^[A-Z]/); 
+      if (match) choiceChar = match[0];
 
       const modelKey = ID_MAP[choiceChar];
       
       if (modelKey && personas[v.personaIndex]) {
-        counts[modelKey]++;
+        counts[modelKey] = (counts[modelKey] || 0) + 1;
         finalVotes.push({
           personaName: personas[v.personaIndex].name,
           personaRole: personas[v.personaIndex].role,
@@ -243,10 +232,9 @@ export const runVotingSession = async (
       }
     });
 
-    // Determine winner
-    let winner: ModelKey = 'Gemini';
+    let winner: string = modelNames[0];
     let max = -1;
-    for (const m of MODELS) {
+    for (const m of modelNames) {
       if (counts[m] > max) {
         max = counts[m];
         winner = m;
@@ -259,4 +247,132 @@ export const runVotingSession = async (
     console.error("Evaluation failed", e);
     throw new Error(e.message || "Error during voting session");
   }
+};
+
+// 3. META ANALYSIS (From Session Data)
+export const analyzeSessionResults = async (items: ReportItem[]): Promise<MetaAnalysisResult> => {
+    const ai = getAiClient();
+    const completedItems = items.filter(i => i.status === 'done' && i.analysis);
+
+    if (completedItems.length === 0) throw new Error("No completed tests to analyze");
+
+    // Simplify data to reduce token count
+    const summaryData = completedItems.map((item, idx) => ({
+        id: idx,
+        test: item.Test,
+        prompt: item.Prompt.substring(0, 100),
+        winner: item.analysis?.winner,
+        voteDistribution: item.analysis?.counts,
+        panelSummary: item.analysis?.summary
+    }));
+
+    const systemInstruction = `
+        You are a Senior Marketing Analyst. 
+        Your job is to review a series of A/B tests between different AI models and provide high-level strategic insights.
+        
+        Analyze the provided JSON data of test results.
+        Identify:
+        1. The Overall Champion (highest win rate).
+        2. Specific "Awards" (e.g. Best for Humor, Best for Professionalism, Safest Choice) based on the test topics/summaries.
+        3. A deep dive into each model involved (strengths, weaknesses, best use cases).
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview', // Using Pro for complex reasoning over dataset
+        config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    overallChampion: { type: Type.STRING },
+                    executiveSummary: { type: Type.STRING },
+                    scenarios: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                title: { type: Type.STRING },
+                                winner: { type: Type.STRING },
+                                description: { type: Type.STRING },
+                                icon: { type: Type.STRING, enum: ['zap', 'shield', 'smile', 'briefcase', 'pen'] }
+                            }
+                        }
+                    },
+                    modelInsights: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                modelName: { type: Type.STRING },
+                                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                bestUseCases: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                winRate: { type: Type.NUMBER, description: "Percentage 0-100" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        contents: JSON.stringify(summaryData)
+    });
+
+    if (!response.text) throw new Error("No analysis generated");
+    return JSON.parse(cleanJson(response.text));
+};
+
+// 4. META ANALYSIS (From PDF)
+export const analyzePdfReport = async (base64Pdf: string): Promise<MetaAnalysisResult> => {
+    const ai = getAiClient();
+
+    // The PDF is generated via html2canvas, so it consists of screenshots/images of tables and charts.
+    // The model needs to visually parse these images.
+    const systemInstruction = `
+        You are a Senior Marketing Analyst. 
+        Read the provided PDF report. 
+        
+        IMPORTANT: This PDF contains SCREENSHOTS of data tables, bar charts, and text summaries from a validation tool.
+        You must visually analyze the images in the PDF to extract the data.
+        
+        Extract and Analyze:
+        1. The Overall Champion (which model won the most tests?).
+        2. Specific "Awards" (Best for Humor, Professionalism, etc) based on the test prompts/results you see.
+        3. Model Deep Dives (Strengths/Weaknesses).
+
+        Return ONLY valid JSON with the following structure:
+        {
+          "overallChampion": "string",
+          "executiveSummary": "string",
+          "scenarios": [{ "title": "string", "winner": "string", "description": "string", "icon": "zap" | "shield" | "smile" | "briefcase" | "pen" }],
+          "modelInsights": [{ "modelName": "string", "strengths": ["string"], "weaknesses": ["string"], "bestUseCases": ["string"], "winRate": number }]
+        }
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            // NOTE: We do NOT use responseSchema here intentionally. 
+            // When dealing with complex visual parsing from PDFs in the Preview model, 
+            // strict schema validation can sometimes cause the model to fail or reject valid visual interpretations.
+            // We rely on the system instruction and JSON mode to get the correct structure.
+        },
+        contents: {
+            parts: [
+                { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
+                { text: "Analyze this visual report and provide the structured JSON insights." }
+            ]
+        }
+    });
+
+    if (!response.text) throw new Error("No analysis generated");
+    
+    try {
+        return JSON.parse(cleanJson(response.text));
+    } catch (e) {
+        console.error("Failed to parse PDF analysis JSON", response.text);
+        throw new Error("The AI analyzed the PDF but returned invalid JSON.");
+    }
 };

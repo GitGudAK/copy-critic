@@ -1,15 +1,17 @@
 
 import React from 'react';
-import { ProcessedRow, MODEL_COLORS, ModelKey, MODELS } from '../types';
+import { ProcessedRow } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, LabelList } from 'recharts';
-import { Trophy, CheckCircle2, User, FileText } from 'lucide-react';
+import { Trophy, User } from 'lucide-react';
 
 interface PdfReportProps {
   rows: ProcessedRow[];
   reportRef: React.RefObject<HTMLDivElement | null>;
+  modelColumns: string[];
+  colorMap: Record<string, string>;
 }
 
-export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
+export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef, modelColumns, colorMap }) => {
   const completedRows = rows.filter(r => r.status === 'completed' && r.result);
 
   return (
@@ -23,7 +25,6 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
         <div className="mb-12 border-b-2 border-slate-900 pb-6">
           <div className="flex items-center gap-3 mb-2">
             <div className="bg-blue-600 p-2 rounded-lg">
-                {/* Simple SVG logo for PDF */}
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                    <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" />
                 </svg>
@@ -50,14 +51,13 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                     </thead>
                     <tbody>
                         {completedRows.map(row => {
-                            const winner = row.result!.winner as ModelKey;
-                            // Safe access to counts
+                            const winner = row.result!.winner;
                             const voteCount = row.result?.counts?.[winner] ?? 0;
                             return (
                                 <tr key={row.id} className="border-b border-slate-100">
                                     <td className="p-3 font-medium text-slate-800">{row.Test}</td>
                                     <td className="p-3">
-                                        <span className="px-2 py-1 rounded text-xs font-bold text-white" style={{ backgroundColor: MODEL_COLORS[winner] || '#94a3b8' }}>
+                                        <span className="px-2 py-1 rounded text-xs font-bold text-white" style={{ backgroundColor: colorMap[winner] || '#94a3b8' }}>
                                             {winner}
                                         </span>
                                     </td>
@@ -93,15 +93,15 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                              <div className="h-40 w-full mb-4">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart 
-                                        data={MODELS.map(m => ({ name: m, votes: row.result?.counts?.[m] ?? 0 }))} 
+                                        data={modelColumns.map(m => ({ name: m, votes: row.result?.counts?.[m] ?? 0 }))} 
                                         layout="vertical"
                                         margin={{ left: 50, right: 20 }}
                                     >
                                         <XAxis type="number" hide />
                                         <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 10}} />
                                         <Bar dataKey="votes" barSize={20} isAnimationActive={false} minPointSize={2}>
-                                            {MODELS.map((m, i) => (
-                                                <Cell key={i} fill={MODEL_COLORS[m]} />
+                                            {modelColumns.map((m, i) => (
+                                                <Cell key={i} fill={colorMap[m] || '#94a3b8'} />
                                             ))}
                                             <LabelList dataKey="votes" position="right" fontSize={10} formatter={(v: number) => `${v}%`} />
                                         </Bar>
@@ -114,7 +114,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                             <div className="flex flex-col gap-2">
                                 <div className="text-xs font-bold uppercase text-slate-500 mb-1">Winning Copy</div>
                                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-64 overflow-hidden relative">
-                                    {row[row.result!.winner as ModelKey]}
+                                    {row[row.result!.winner]}
                                     <div className="absolute top-2 right-2">
                                         <Trophy className="w-4 h-4 text-green-600" />
                                     </div>
@@ -147,9 +147,9 @@ export const PdfReport: React.FC<PdfReportProps> = ({ rows, reportRef }) => {
                                             <td className="p-2">
                                                 <span 
                                                     className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap"
-                                                    style={{ backgroundColor: MODEL_COLORS[vote.votedFor] }}
+                                                    style={{ backgroundColor: colorMap[vote.votedFor] || '#94a3b8' }}
                                                 >
-                                                    {vote.votedFor.replace('Writer ', '').replace('Mode', '')}
+                                                    {vote.votedFor}
                                                 </span>
                                             </td>
                                             <td className="p-2 text-slate-600 italic">"{vote.reason}"</td>

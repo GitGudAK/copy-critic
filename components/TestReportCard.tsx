@@ -1,14 +1,16 @@
 
 import React, { useState } from 'react';
-import { ReportItem, MODELS, MODEL_COLORS } from '../types';
+import { ReportItem } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, LabelList } from 'recharts';
 import { Trophy, ChevronDown, ChevronUp, User, Quote } from 'lucide-react';
 
 interface Props {
   item: ReportItem;
+  modelColumns: string[];
+  colorMap: Record<string, string>;
 }
 
-export const TestReportCard: React.FC<Props> = ({ item }) => {
+export const TestReportCard: React.FC<Props> = ({ item, modelColumns, colorMap }) => {
   const [showDetails, setShowDetails] = useState(false);
 
   if (item.status !== 'done' || !item.analysis) {
@@ -22,11 +24,12 @@ export const TestReportCard: React.FC<Props> = ({ item }) => {
 
   const { winner, counts, votes, summary } = item.analysis;
   
-  const chartData = MODELS.map(m => ({
+  const chartData = modelColumns.map(m => ({
     name: m,
-    shortName: m.replace('Writer ', '').replace('Mode', '').replace('mode', ''),
-    value: counts[m],
-    color: MODEL_COLORS[m]
+    // Truncate name if too long for axis
+    shortName: m.length > 20 ? m.substring(0, 18) + '..' : m,
+    value: counts[m] || 0,
+    color: colorMap[m] || '#94a3b8'
   })).sort((a, b) => b.value - a.value);
 
   return (
@@ -63,12 +66,11 @@ export const TestReportCard: React.FC<Props> = ({ item }) => {
                 <YAxis 
                   type="category" 
                   dataKey="shortName" 
-                  width={120} 
+                  width={140} 
                   tick={{ fill: '#94a3b8', fontSize: 12 }} 
                   axisLine={false}
                   tickLine={false}
                 />
-                {/* minPointSize ensures 0 values still have a tiny bar so the LabelList aligns correctly to the right of the axis */}
                 <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24} minPointSize={2}>
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
@@ -95,7 +97,6 @@ export const TestReportCard: React.FC<Props> = ({ item }) => {
              <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">Preview</span>
           </div>
           <div className="p-4 bg-slate-900/80 rounded border border-slate-700 text-sm text-slate-300 italic h-full max-h-[280px] overflow-y-auto custom-scrollbar shadow-inner">
-            {/* Dynamic key access */}
             {(item as any)[winner]}
           </div>
         </div>
@@ -121,8 +122,8 @@ export const TestReportCard: React.FC<Props> = ({ item }) => {
                     <span className="text-xs font-bold text-slate-300">{vote.personaName}</span>
                     <span className="text-[10px] text-slate-500 uppercase">{vote.personaRole}</span>
                   </div>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded text-black font-bold" style={{ backgroundColor: MODEL_COLORS[vote.votedFor] }}>
-                    {vote.votedFor.replace('Writer ', '').replace('Mode', '')}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded text-white font-bold" style={{ backgroundColor: colorMap[vote.votedFor] || '#64748b' }}>
+                    {vote.votedFor}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">"{vote.reason}"</p>

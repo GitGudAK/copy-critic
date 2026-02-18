@@ -1,18 +1,20 @@
+
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { VoteResult, MODEL_COLORS, ModelKey, MODELS } from '../types';
+import { VoteResult } from '../types';
 import { Trophy } from 'lucide-react';
 
 interface ResultsChartProps {
   result: VoteResult;
+  modelColumns: string[];
+  colorMap: Record<string, string>;
 }
 
-export const ResultsChart: React.FC<ResultsChartProps> = ({ result }) => {
-  const data = MODELS.map(key => ({
-    name: key.replace('Writer ', '').replace('Mode', ''), // Shorten names for chart
-    fullName: key,
-    votes: result.counts?.[key] ?? 0, // Safe access
-    fill: MODEL_COLORS[key]
+export const ResultsChart: React.FC<ResultsChartProps> = ({ result, modelColumns, colorMap }) => {
+  const data = modelColumns.map(key => ({
+    name: key, 
+    votes: result.counts?.[key] ?? 0, 
+    fill: colorMap[key] || '#94a3b8'
   }));
 
   // Sort data descending
@@ -25,7 +27,7 @@ export const ResultsChart: React.FC<ResultsChartProps> = ({ result }) => {
         <h3 className="text-lg font-semibold text-white">Voting Distribution</h3>
         <div className="flex items-center gap-2 bg-yellow-500/10 px-3 py-1 rounded-full border border-yellow-500/20">
           <Trophy className="w-4 h-4 text-yellow-500" />
-          <span className="text-sm font-bold text-yellow-500">Winner: {winner.fullName} ({winner.votes}%)</span>
+          <span className="text-sm font-bold text-yellow-500">Winner: {winner.name} ({winner.votes}%)</span>
         </div>
       </div>
 

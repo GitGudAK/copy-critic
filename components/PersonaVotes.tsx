@@ -1,12 +1,14 @@
+
 import React from 'react';
-import { IndividualVote, MODEL_COLORS } from '../types';
+import { IndividualVote } from '../types';
 import { User } from 'lucide-react';
 
 interface PersonaVotesProps {
   votes: IndividualVote[];
+  colorMap: Record<string, string>;
 }
 
-export const PersonaVotes: React.FC<PersonaVotesProps> = ({ votes }) => {
+export const PersonaVotes: React.FC<PersonaVotesProps> = ({ votes, colorMap }) => {
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 flex flex-col h-[600px] overflow-hidden">
         <div className="p-4 border-b border-slate-700 bg-slate-800/50">
@@ -32,9 +34,9 @@ export const PersonaVotes: React.FC<PersonaVotesProps> = ({ votes }) => {
                             </div>
                             <span 
                                 className="text-[10px] px-2 py-1 rounded-md font-bold text-white whitespace-nowrap"
-                                style={{ backgroundColor: MODEL_COLORS[vote.vote] }}
+                                style={{ backgroundColor: colorMap[vote.vote] || '#64748b' }}
                             >
-                                {vote.vote.replace('Writer ', '').replace('Mode', '')}
+                                {vote.vote}
                             </span>
                         </div>
                         <div className="mt-2 ml-11 text-xs text-slate-300 italic">

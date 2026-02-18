@@ -1,5 +1,4 @@
 
-
 export interface Persona {
   id: string;
   name: string;
@@ -10,40 +9,32 @@ export interface Persona {
   avatarId: number;
 }
 
-// Matches the Excel columns exactly
+// Allow dynamic columns for different models
 export interface ExcelRow {
   Test: string;
   Prompt: string;
-  'Writer (Agent Mode)': string;
-  'Writer (Chat mode)': string;
-  'GPT 5.2': string;
-  'GS PeM': string;
-  'Gemini': string;
+  [key: string]: any; 
 }
 
-// The specific keys for the models
-export type ModelKey = 'Writer (Agent Mode)' | 'Writer (Chat mode)' | 'GPT 5.2' | 'GS PeM' | 'Gemini';
-
-export const MODELS: ModelKey[] = [
-  'Writer (Agent Mode)',
-  'Writer (Chat mode)',
-  'GPT 5.2',
-  'GS PeM',
-  'Gemini'
+export const COLOR_PALETTE = [
+  '#8b5cf6', // Violet
+  '#ec4899', // Pink
+  '#10b981', // Emerald
+  '#f59e0b', // Amber
+  '#3b82f6', // Blue
+  '#ef4444', // Red
+  '#6366f1', // Indigo
+  '#84cc16', // Lime
+  '#14b8a6', // Teal
+  '#d946ef', // Fuchsia
+  '#06b6d4', // Cyan
+  '#f97316', // Orange
 ];
-
-export const MODEL_COLORS: Record<ModelKey, string> = {
-  'Writer (Agent Mode)': '#8b5cf6', // Violet
-  'Writer (Chat mode)': '#ec4899', // Pink
-  'GPT 5.2': '#10b981', // Emerald
-  'GS PeM': '#f59e0b', // Amber
-  'Gemini': '#3b82f6', // Blue
-};
 
 export interface Vote {
   personaName: string;
   personaRole: string;
-  votedFor: ModelKey;
+  votedFor: string;
   reason: string;
 }
 
@@ -51,29 +42,22 @@ export interface IndividualVote {
   personaId: string;
   personaName: string;
   personaRole: string;
-  vote: ModelKey;
+  vote: string;
   comment: string;
 }
 
 export interface AnalysisResult {
-  winner: ModelKey;
-  counts: Record<ModelKey, number>;
+  winner: string;
+  counts: Record<string, number>;
   votes: Vote[];
   summary: string;
 }
 
-export interface SegmentAnalysis {
-  name: string;
-  winner: string;
-  reason: string;
-}
-
 export interface VoteResult {
-  winner: ModelKey;
-  counts: Record<ModelKey, number>;
+  winner: string;
+  counts: Record<string, number>;
   votes?: Vote[];
   reasoning?: string;
-  segments?: SegmentAnalysis[];
 }
 
 export interface ReportItem extends ExcelRow {
@@ -87,4 +71,28 @@ export interface ProcessedRow extends ExcelRow {
   id: string;
   status: 'completed' | 'pending' | 'failed';
   result?: VoteResult;
+}
+
+// --- META ANALYSIS TYPES ---
+
+export interface ModelInsight {
+  modelName: string;
+  strengths: string[];
+  weaknesses: string[];
+  bestUseCases: string[];
+  winRate: number;
+}
+
+export interface ScenarioAward {
+  title: string;
+  winner: string;
+  description: string;
+  icon: 'zap' | 'shield' | 'smile' | 'briefcase' | 'pen';
+}
+
+export interface MetaAnalysisResult {
+  overallChampion: string;
+  executiveSummary: string;
+  scenarios: ScenarioAward[];
+  modelInsights: ModelInsight[];
 }
