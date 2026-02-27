@@ -35,7 +35,8 @@ export interface Vote {
   personaName: string;
   personaRole: string;
   votedFor: string;
-  reason: string;
+  choiceRationale: string; // Why they chose it
+  rejectionRationale: string; // Why they didn't choose others
 }
 
 export interface IndividualVote {
@@ -71,6 +72,14 @@ export interface ProcessedRow extends ExcelRow {
   id: string;
   status: 'completed' | 'pending' | 'failed';
   result?: VoteResult;
+}
+
+export interface Job {
+  id: string;
+  timestamp: number;
+  name: string;
+  items: ReportItem[];
+  personas: Persona[];
 }
 
 // --- META ANALYSIS TYPES ---

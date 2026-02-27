@@ -1,7 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Persona } from '../types';
-import { Users, User, Zap, X, Filter } from 'lucide-react';
+import { Users, User, Zap, X, Filter, Download } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import { PersonaProfilePdf } from './PersonaProfilePdf';
 
 interface PersonaGridProps {
   personas: Persona[];
@@ -11,6 +14,68 @@ interface PersonaGridProps {
 export const PersonaGrid: React.FC<PersonaGridProps> = ({ personas, isGenerating }) => {
   const [showRoster, setShowRoster] = useState(false);
   const [filterRole, setFilterRole] = useState<string>('All');
+  const profilesPdfRef = useRef<HTMLDivElement>(null);
+
+  const handleExportProfiles = async () => {
+    if (!profilesPdfRef.current) return;
+    
+    const originalTitle = document.title;
+    document.title = "Exporting Profiles...";
+    
+    try {
+        const element = profilesPdfRef.current;
+        const sections = Array.from(element.querySelectorAll('[data-pdf-section]'));
+        
+        await document.fonts.ready;
+        
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const margin = 10;
+        let currentY = margin;
+
+        if (sections.length === 0) throw new Error("No content to export");
+
+        for (let i = 0; i < sections.length; i++) {
+            const section = sections[i] as HTMLElement;
+
+            const canvas = await html2canvas(section, { 
+                scale: 1.5, 
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false,
+                scrollX: 0,
+                scrollY: 0,
+                windowWidth: 800
+            });
+
+            if (canvas.width === 0 || canvas.height === 0) continue;
+
+            const imgData = canvas.toDataURL('image/png');
+            const imgWidth = canvas.width;
+            const imgHeight = canvas.height;
+            
+            const pdfImgWidth = pdfWidth - (margin * 2);
+            const pdfImgHeight = (imgHeight * pdfImgWidth) / imgWidth;
+
+            // Check if fits on page
+            if (currentY + pdfImgHeight > pdfHeight - margin) {
+                pdf.addPage();
+                currentY = margin;
+            }
+
+            pdf.addImage(imgData, 'PNG', margin, currentY, pdfImgWidth, pdfImgHeight);
+            currentY += pdfImgHeight + 5;
+        }
+
+        pdf.save('CopyCritic_Persona_Profiles.pdf');
+    } catch (e: any) {
+        console.error(e);
+        alert(`Export failed: ${e.message}`);
+    } finally {
+        document.title = originalTitle;
+    }
+  };
 
   if (isGenerating) {
     return (
@@ -36,6 +101,11 @@ export const PersonaGrid: React.FC<PersonaGridProps> = ({ personas, isGenerating
   return (
     <>
       <div className="mt-8 bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+        {/* Hidden PDF Render Target - Using fixed positioning to ensure it renders offscreen but in DOM */}
+        <div style={{ position: 'fixed', top: 0, left: '-10000px', width: '800px', zIndex: -50 }}>
+             <PersonaProfilePdf ref={profilesPdfRef} personas={personas} />
+        </div>
+
         <div className="flex items-center justify-between mb-6">
           <div>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -46,12 +116,21 @@ export const PersonaGrid: React.FC<PersonaGridProps> = ({ personas, isGenerating
                   Synthetic Copywriters & Marketers with diverse ethnographics.
               </p>
           </div>
-          <button 
-            onClick={() => setShowRoster(true)}
-            className="text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors"
-          >
-            View Full Roster
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+                onClick={handleExportProfiles}
+                className="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700 px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
+            >
+                <Download className="w-3 h-3" />
+                Export PDF
+            </button>
+            <button 
+                onClick={() => setShowRoster(true)}
+                className="text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+                View Full Roster
+            </button>
+          </div>
         </div>
 
         {/* Compact Grid Preview */}

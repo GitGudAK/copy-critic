@@ -3,9 +3,15 @@ import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/gen
 import { Persona, AnalysisResult, Vote, MetaAnalysisResult, ReportItem } from '../types';
 import { getStaticPersonas } from './staticData';
 
+let manualApiKey: string | null = null;
+
+export const setManualApiKey = (key: string | null) => {
+  manualApiKey = key;
+};
+
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API_KEY not set");
+  const apiKey = manualApiKey || process.env.API_KEY;
+  if (!apiKey) throw new Error("API_KEY not set. Please provide an API key in the settings.");
   return new GoogleGenAI({ apiKey });
 };
 
@@ -118,14 +124,33 @@ export const runVotingSession = async (
             You are simulating a voting panel of marketing personas.
             Task: Read the User Prompt and the Model Outputs (${availableOptions}).
             
-            1. Analyze texts based on persona bias.
-            2. Decide which model wrote the best copy for EACH persona (#0 to #${batchPersonas.length - 1}).
-            3. Provide a 'summary' of consensus.
+            CONTEXT:
+            The Model Outputs contain marketing copy. This may include Headlines, Body Copy, CTAs, etc.
+            **NOTE**: Some models may include technical metadata (e.g., "Character Count: 45", "Word Count: 10") or labels.
             
+            INSTRUCTIONS:
+            1. **Holistic Quality is King**: Evaluate the impact, wit, and persuasiveness of the content provided.
+               - **DO NOT PENALIZE MISSING STRUCTURE**: If a model output is missing a CTA, Headline, or specific element, IGNORE that omission. Judge what IS there.
+               - **IGNORE METADATA**: Treat "Character Counts", "Word Counts", or structural labels (e.g. "Headline:") as invisible informational metadata. They are NOT part of the creative copy. Do not penalize or reward their presence.
+               - **Focus on Strength**: Judge the model based solely on the quality of the creative text. A single brilliant headline can beat a mediocre full ad unit.
+               - **Synergy**: If multiple elements are present, judge how they work together. If only one is present, judge it on its own merit.
+            2. **Persona Bias**: Analyze based on your specific persona bias.
+            3. **Decision**: Decide which model constructed the best overall ad unit for EACH persona (#0 to #${batchPersonas.length - 1}).
+            4. **Rationale**:
+               - **choice_reason**: Crisp reason why this unit won (max 15 words).
+               - **rejection_reason**: Crisp reason why the LOSERS failed (max 15 words). 
+                 - **NAMING CONVENTION**: ALWAYS refer to losing models as "Model A", "Model B", etc. (e.g. "Model A was too generic", "Model A and Model B lacked wit"). DO NOT use "A" or "B" on their own. This allows for post-processing.
+                 - Focus on tone, style, or lack of impact. Do NOT cite "missing elements", "incomplete", or "character counts".
+
             OUTPUT FORMAT:
             Return ONLY a JSON object.
             keys: "summary" (string), "votes" (array).
-            votes item: { "i": number (0-${batchPersonas.length - 1}), "c": "${availableOptions}", "r": "max 6 words" }
+            votes item: { 
+                "i": number (0-${batchPersonas.length - 1}), 
+                "c": "${availableOptions}", 
+                "choice_reason": "string",
+                "rejection_reason": "string"
+            }
         `;
 
         const userPrompt = `
@@ -162,9 +187,10 @@ export const runVotingSession = async (
                             properties: {
                               i: { type: Type.INTEGER },
                               c: { type: Type.STRING },
-                              r: { type: Type.STRING }
+                              choice_reason: { type: Type.STRING },
+                              rejection_reason: { type: Type.STRING }
                             },
-                            required: ["i", "c"]
+                            required: ["i", "c", "choice_reason", "rejection_reason"]
                           }
                         }
                       }
@@ -190,22 +216,48 @@ export const runVotingSession = async (
                 throw new Error("Invalid JSON response");
             }
             
-            // Map votes back using the dynamic ID_MAP
-            const mappedVotes = (json.votes || []).map((v: any) => ({
-                personaIndex: (v.i !== undefined ? v.i : -1) + globalStartIndex,
-                choice: v.c || REVERSE_MAP[modelNames[0]], // Default to first model if invalid
-                reason: v.r || '...'
-            }));
+            // Map votes back using the dynamic ID_MAP AND post-process alias names
+            const mappedVotes = (json.votes || []).map((v: any) => {
+                let cRat = v.choice_reason || "Good fit";
+                let rRat = v.rejection_reason || "Others were worse";
+                
+                // Replace "Model A", "Option B" aliases with Real Names in the rationales
+                modelNames.forEach((realName, idx) => {
+                    const alias = LETTERS[idx] || `M${idx}`;
+                    // Regex matches "Model A" or "Option A"
+                    const specificRegex = new RegExp(`\\b(Model|Option|Candidate)\\s?${alias}\\b`, 'gi');
+                    cRat = cRat.replace(specificRegex, realName);
+                    rRat = rRat.replace(specificRegex, realName);
+                });
+
+                return {
+                    personaIndex: (v.i !== undefined ? v.i : -1) + globalStartIndex,
+                    choice: v.c || REVERSE_MAP[modelNames[0]], 
+                    choiceRationale: cRat,
+                    rejectionRationale: rRat
+                };
+            });
     
+            // Also post-process the summary text for the batch
+            let summaryText = json.summary || "";
+            modelNames.forEach((realName, idx) => {
+                const alias = LETTERS[idx] || `M${idx}`;
+                const specificRegex = new RegExp(`\\b(Model|Option|Candidate)\\s?${alias}\\b`, 'gi');
+                summaryText = summaryText.replace(specificRegex, realName);
+            });
+
             return {
                 votes: mappedVotes,
-                summary: json.summary || ""
+                summary: summaryText
             };
         }, 2, 2000); 
     }, 3); 
 
     // --- AGGREGATION ---
     const allVotes: any[] = results.flatMap(r => r.votes);
+    
+    // Combine summaries? For now, we take the first batch summary as the overall "consensus" 
+    // or we could concatenate them. Taking first is usually sufficient for tone, but let's concat if short.
     const summary = results[0]?.summary || "Analysis completed.";
 
     const counts: Record<string, number> = {};
@@ -227,9 +279,15 @@ export const runVotingSession = async (
           personaName: personas[v.personaIndex].name,
           personaRole: personas[v.personaIndex].role,
           votedFor: modelKey,
-          reason: v.reason
+          choiceRationale: v.choiceRationale,
+          rejectionRationale: v.rejectionRationale
         });
       }
+    });
+
+    // Ensure counts has all model names even if they got 0 votes
+    modelNames.forEach(m => {
+      if (counts[m] === undefined) counts[m] = 0;
     });
 
     let winner: string = modelNames[0];
@@ -256,25 +314,68 @@ export const analyzeSessionResults = async (items: ReportItem[]): Promise<MetaAn
 
     if (completedItems.length === 0) throw new Error("No completed tests to analyze");
 
-    // Simplify data to reduce token count
-    const summaryData = completedItems.map((item, idx) => ({
-        id: idx,
-        test: item.Test,
-        prompt: item.Prompt.substring(0, 100),
-        winner: item.analysis?.winner,
-        voteDistribution: item.analysis?.counts,
-        panelSummary: item.analysis?.summary
-    }));
+    // Aggregate rich data for the analyst
+    const summaryData = completedItems.map((item, idx) => {
+        const votes = item.analysis?.votes || [];
+        
+        // Structure: Group rationales by model
+        const modelFeedback: Record<string, { likes: string[], voteCount: number }> = {};
+        const rejectionFeedback: string[] = [];
+
+        // Initialize counts
+        Object.keys(item.analysis?.counts || {}).forEach(m => {
+            modelFeedback[m] = { likes: [], voteCount: item.analysis?.counts[m] || 0 };
+        });
+
+        votes.forEach(v => {
+            // Collect why they chose this model
+            if (modelFeedback[v.votedFor]) {
+                modelFeedback[v.votedFor].likes.push(v.choiceRationale);
+            }
+            // Collect general rejection feedback (applies to non-chosen models)
+            if (v.rejectionRationale) {
+                rejectionFeedback.push(v.rejectionRationale);
+            }
+        });
+
+        // Sample to fit in context window (take 5 distinct reasons per model)
+        const sampledFeedback: Record<string, any> = {};
+        Object.keys(modelFeedback).forEach(m => {
+            const uniqueLikes = Array.from(new Set(modelFeedback[m].likes));
+            sampledFeedback[m] = {
+                votes: modelFeedback[m].voteCount,
+                top_reasons_for_choosing: uniqueLikes.slice(0, 5)
+            };
+        });
+
+        // Sample rejection feedback
+        const uniqueRejections = Array.from(new Set(rejectionFeedback));
+
+        return {
+            test_id: idx,
+            test_topic: item.Test,
+            prompt: item.Prompt.substring(0, 150),
+            winner: item.analysis?.winner,
+            model_performance: sampledFeedback,
+            general_criticism_of_losers: uniqueRejections.slice(0, 8)
+        };
+    });
 
     const systemInstruction = `
         You are a Senior Marketing Analyst. 
         Your job is to review a series of A/B tests between different AI models and provide high-level strategic insights.
         
-        Analyze the provided JSON data of test results.
-        Identify:
-        1. The Overall Champion (highest win rate).
-        2. Specific "Awards" (e.g. Best for Humor, Best for Professionalism, Safest Choice) based on the test topics/summaries.
-        3. A deep dive into each model involved (strengths, weaknesses, best use cases).
+        The tested content is creative marketing copy.
+        
+        Analyze the provided JSON data. For each test, you have:
+        - "model_performance": containing vote counts and specific reasons ("top_reasons_for_choosing") why personas liked a model.
+        - "general_criticism_of_losers": reasons why personas rejected the other options.
+
+        Task:
+        1. Identify the Overall Champion (highest total win rate).
+        2. Assign Specific "Awards" (e.g. Best Headline Writer, Strongest Visual Flow, Best CTA, Best for Corporate, Safest Choice) based on the patterns in the feedback.
+        3. Create a Deep Dive for EACH model. Use the "top_reasons_for_choosing" to identify STRENGTHS (e.g., "Great headlines"). Use "general_criticism_of_losers" to identify WEAKNESSES (e.g., "Weak CTAs", "Body copy disconnected from visual").
+        4. Define "Best Use Cases" for each model based on where it succeeded.
     `;
 
     const response = await ai.models.generateContent({
@@ -320,59 +421,4 @@ export const analyzeSessionResults = async (items: ReportItem[]): Promise<MetaAn
 
     if (!response.text) throw new Error("No analysis generated");
     return JSON.parse(cleanJson(response.text));
-};
-
-// 4. META ANALYSIS (From PDF)
-export const analyzePdfReport = async (base64Pdf: string): Promise<MetaAnalysisResult> => {
-    const ai = getAiClient();
-
-    // The PDF is generated via html2canvas, so it consists of screenshots/images of tables and charts.
-    // The model needs to visually parse these images.
-    const systemInstruction = `
-        You are a Senior Marketing Analyst. 
-        Read the provided PDF report. 
-        
-        IMPORTANT: This PDF contains SCREENSHOTS of data tables, bar charts, and text summaries from a validation tool.
-        You must visually analyze the images in the PDF to extract the data.
-        
-        Extract and Analyze:
-        1. The Overall Champion (which model won the most tests?).
-        2. Specific "Awards" (Best for Humor, Professionalism, etc) based on the test prompts/results you see.
-        3. Model Deep Dives (Strengths/Weaknesses).
-
-        Return ONLY valid JSON with the following structure:
-        {
-          "overallChampion": "string",
-          "executiveSummary": "string",
-          "scenarios": [{ "title": "string", "winner": "string", "description": "string", "icon": "zap" | "shield" | "smile" | "briefcase" | "pen" }],
-          "modelInsights": [{ "modelName": "string", "strengths": ["string"], "weaknesses": ["string"], "bestUseCases": ["string"], "winRate": number }]
-        }
-    `;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        config: {
-            systemInstruction,
-            responseMimeType: 'application/json',
-            // NOTE: We do NOT use responseSchema here intentionally. 
-            // When dealing with complex visual parsing from PDFs in the Preview model, 
-            // strict schema validation can sometimes cause the model to fail or reject valid visual interpretations.
-            // We rely on the system instruction and JSON mode to get the correct structure.
-        },
-        contents: {
-            parts: [
-                { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-                { text: "Analyze this visual report and provide the structured JSON insights." }
-            ]
-        }
-    });
-
-    if (!response.text) throw new Error("No analysis generated");
-    
-    try {
-        return JSON.parse(cleanJson(response.text));
-    } catch (e) {
-        console.error("Failed to parse PDF analysis JSON", response.text);
-        throw new Error("The AI analyzed the PDF but returned invalid JSON.");
-    }
 };

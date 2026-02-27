@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { ReportItem } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, LabelList } from 'recharts';
-import { Trophy, ChevronDown, ChevronUp, User, Quote } from 'lucide-react';
+import { Trophy, ChevronDown, ChevronUp, User, Quote, ThumbsUp, ThumbsDown, AlertOctagon } from 'lucide-react';
 
 interface Props {
   item: ReportItem;
@@ -31,6 +31,23 @@ export const TestReportCard: React.FC<Props> = ({ item, modelColumns, colorMap }
     value: counts[m] || 0,
     color: colorMap[m] || '#94a3b8'
   })).sort((a, b) => b.value - a.value);
+
+  // Derive Top Rejection Reasons
+  // We prioritize rationales that explicitly mention the names of losing models.
+  const losers = modelColumns.filter(m => m !== winner);
+  const allRejections = votes.map(v => v.rejectionRationale).filter(Boolean);
+  
+  const specificRejections = allRejections.filter(r => 
+    losers.some(l => r.toLowerCase().includes(l.toLowerCase()))
+  );
+  
+  const genericRejections = allRejections.filter(r => 
+    !losers.some(l => r.toLowerCase().includes(l.toLowerCase()))
+  );
+
+  // Mix specific and generic, favoring specific
+  const uniqueRejections = [...new Set([...specificRejections, ...genericRejections])];
+  const topRejections = uniqueRejections.slice(0, 3);
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-lg">
@@ -88,6 +105,23 @@ export const TestReportCard: React.FC<Props> = ({ item, modelColumns, colorMap }
                "{summary}"
              </p>
           </div>
+
+          {/* New Rejection Section */}
+          {topRejections.length > 0 && (
+             <div className="bg-red-500/5 border border-red-500/10 rounded-lg p-4">
+               <h4 className="text-xs font-bold text-red-400 uppercase mb-2 flex items-center gap-2">
+                 <AlertOctagon className="w-3 h-3" /> Key Rejection Factors
+               </h4>
+               <ul className="space-y-2">
+                 {topRejections.map((reason, idx) => (
+                   <li key={idx} className="text-xs text-slate-400 flex items-start gap-2">
+                     <span className="text-red-500/50 mt-0.5">•</span>
+                     {reason}
+                   </li>
+                 ))}
+               </ul>
+             </div>
+          )}
         </div>
 
         {/* Right Col: Winning Text Sample */}
@@ -96,7 +130,7 @@ export const TestReportCard: React.FC<Props> = ({ item, modelColumns, colorMap }
              <span>Winning Copy ({winner})</span>
              <span className="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">Preview</span>
           </div>
-          <div className="p-4 bg-slate-900/80 rounded border border-slate-700 text-sm text-slate-300 italic h-full max-h-[280px] overflow-y-auto custom-scrollbar shadow-inner">
+          <div className="p-4 bg-slate-900/80 rounded border border-slate-700 text-sm text-slate-300 italic h-full max-h-[350px] overflow-y-auto custom-scrollbar shadow-inner whitespace-pre-wrap">
             {(item as any)[winner]}
           </div>
         </div>
@@ -113,10 +147,10 @@ export const TestReportCard: React.FC<Props> = ({ item, modelColumns, colorMap }
         </button>
         
         {showDetails && (
-          <div className="bg-slate-900/80 p-4 max-h-96 overflow-y-auto custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-3 animate-in slide-in-from-top-2">
+          <div className="bg-slate-900/80 p-4 max-h-[500px] overflow-y-auto custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-3 animate-in slide-in-from-top-2">
             {votes.map((vote, i) => (
-              <div key={i} className="bg-slate-800 p-3 rounded border border-slate-700/50 flex flex-col gap-2">
-                <div className="flex items-center justify-between">
+              <div key={i} className="bg-slate-800 p-4 rounded border border-slate-700/50 flex flex-col gap-3 shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
                   <div className="flex items-center gap-2">
                     <User className="w-3 h-3 text-slate-500" />
                     <span className="text-xs font-bold text-slate-300">{vote.personaName}</span>
@@ -126,7 +160,23 @@ export const TestReportCard: React.FC<Props> = ({ item, modelColumns, colorMap }
                     {vote.votedFor}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">"{vote.reason}"</p>
+                
+                <div className="grid grid-cols-1 gap-2">
+                    <div className="text-xs">
+                        <div className="flex items-center gap-1 text-green-400 font-bold mb-0.5">
+                            <ThumbsUp className="w-3 h-3" /> Why I chose it:
+                        </div>
+                        <p className="text-slate-400 pl-4">{vote.choiceRationale || vote.reason}</p>
+                    </div>
+                    {vote.rejectionRationale && (
+                        <div className="text-xs">
+                            <div className="flex items-center gap-1 text-red-400 font-bold mb-0.5">
+                                <ThumbsDown className="w-3 h-3" /> Comparison:
+                            </div>
+                            <p className="text-slate-400 pl-4">{vote.rejectionRationale}</p>
+                        </div>
+                    )}
+                </div>
               </div>
             ))}
           </div>

@@ -1,15 +1,14 @@
 
 import React, { useState, useRef } from 'react';
-import { ReportItem, MetaAnalysisResult } from '../types';
-import { analyzeSessionResults, analyzePdfReport } from '../services/geminiService';
-import { Trophy, TrendingUp, Shield, Smile, Briefcase, PenTool, Upload, Loader2, ArrowLeft, FileText, CheckCircle, Download } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import { ReportItem, MetaAnalysisResult, Job } from '../types';
+import { analyzeSessionResults } from '../services/geminiService';
+import { Trophy, TrendingUp, Shield, Smile, Briefcase, PenTool, Loader2, ArrowLeft, FileText, CheckCircle, Database, Clock } from 'lucide-react';
 
 interface Props {
   currentItems: ReportItem[];
   onBack: () => void;
   colorMap: Record<string, string>;
+  savedJobs?: Job[];
 }
 
 const ICONS = {
@@ -20,87 +19,25 @@ const ICONS = {
   pen: PenTool
 };
 
-export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, colorMap }) => {
+export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, colorMap, savedJobs = [] }) => {
   const [analysis, setAnalysis] = useState<MetaAnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const printRef = useRef<HTMLDivElement>(null);
 
-  const handleAnalyzeCurrent = async () => {
+  const handleAnalyzeItems = async (items: ReportItem[], jobId: string) => {
     setLoading(true);
     setError(null);
+    setActiveJobId(jobId);
     try {
-      const result = await analyzeSessionResults(currentItems);
+      const result = await analyzeSessionResults(items);
       setAnalysis(result);
     } catch (e: any) {
       setError(e.message || "Analysis failed");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setLoading(true);
-    setError(null);
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-        try {
-            const base64 = (evt.target?.result as string).split(',')[1];
-            const result = await analyzePdfReport(base64);
-            setAnalysis(result);
-        } catch (e: any) {
-            console.error("PDF Analysis Error:", e);
-            setError(e.message || "Failed to analyze PDF. The file might be too large or complex for the current model.");
-        } finally {
-            setLoading(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-        }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleDownloadPdf = async () => {
-    if (!printRef.current) return;
-    
-    try {
-        const element = printRef.current;
-        const canvas = await html2canvas(element, {
-            scale: 2,
-            backgroundColor: '#ffffff',
-            windowWidth: 800
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-        const finalHeight = (canvas.height * pdfWidth) / canvas.width;
-        
-        let heightLeft = finalHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, finalHeight);
-        heightLeft -= pdfHeight;
-
-        while (heightLeft >= 0) {
-          position = heightLeft - finalHeight;
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, finalHeight);
-          heightLeft -= pdfHeight;
-        }
-
-        pdf.save('Meta_Analysis_Insights.pdf');
-    } catch (e) {
-        console.error("Export failed", e);
-        alert("Failed to generate PDF. Please try again.");
     }
   };
 
@@ -112,7 +49,7 @@ export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, color
                 <Loader2 className="w-16 h-16 text-blue-500 animate-spin relative z-10" />
             </div>
             <h2 className="mt-8 text-2xl font-bold text-white">Generating Meta-Analysis</h2>
-            <p className="text-slate-400 mt-2">Our Senior Analyst AI is reading your reports...</p>
+            <p className="text-slate-400 mt-2">Our Senior Analyst AI is reading the rationales (this may take a moment for large files)...</p>
         </div>
     );
   }
@@ -122,14 +59,7 @@ export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, color
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between mb-6">
                 <button onClick={() => setAnalysis(null)} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
-                    <ArrowLeft className="w-4 h-4" /> Back to Upload
-                </button>
-                
-                <button 
-                    onClick={handleDownloadPdf}
-                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-blue-500/20"
-                >
-                    <Download className="w-4 h-4" /> Download Report
+                    <ArrowLeft className="w-4 h-4" /> Back to Selection
                 </button>
             </div>
 
@@ -233,110 +163,6 @@ export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, color
                     </div>
                 ))}
             </div>
-
-            {/* Hidden Print Container */}
-            <div className="fixed left-[-9999px] top-0">
-                <div 
-                    ref={printRef} 
-                    className="w-[800px] min-h-screen bg-white text-slate-900 p-12 font-sans"
-                >
-                     {/* Print Header */}
-                    <div className="border-b-2 border-slate-900 pb-6 mb-10">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-blue-600 p-2 rounded-lg">
-                                {/* Simple Logo SVG */}
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                                <path d="M2 20h20M22 20V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v16M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6" />
-                                </svg>
-                            </div>
-                            <h1 className="text-3xl font-bold text-slate-900">Validation Insights</h1>
-                        </div>
-                        <p className="text-slate-500 text-lg">Meta-Analysis Report</p>
-                        <div className="mt-2 text-sm text-slate-400">Generated on {new Date().toLocaleDateString()}</div>
-                    </div>
-
-                    {/* Executive Summary */}
-                    <div className="mb-10 p-6 bg-slate-50 rounded-xl border border-slate-100">
-                        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3">Executive Summary</h2>
-                        <p className="text-lg font-medium text-slate-800 leading-relaxed">{analysis.executiveSummary}</p>
-                    </div>
-
-                    {/* Overall Champion */}
-                    <div className="mb-12 flex items-center gap-6 p-6 border-l-4 border-yellow-500 bg-yellow-50 rounded-r-xl">
-                        <div className="bg-yellow-100 p-4 rounded-full">
-                             <Trophy className="w-10 h-10 text-yellow-600" />
-                        </div>
-                        <div>
-                             <div className="text-sm font-bold text-yellow-700 uppercase">Overall Champion</div>
-                             <div className="text-3xl font-bold text-slate-900">{analysis.overallChampion}</div>
-                        </div>
-                    </div>
-
-                    {/* Scenario Table */}
-                    <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-                        <TrendingUp className="w-5 h-5 text-blue-600" />
-                        Scenario Superlatives
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4 mb-12">
-                         {analysis.scenarios?.map((s, i) => (
-                             <div key={i} className="border border-slate-200 p-4 rounded-lg break-inside-avoid">
-                                 <div className="flex justify-between items-start mb-2">
-                                     <h4 className="font-bold text-slate-800">{s.title}</h4>
-                                     <span className="text-xs px-2 py-1 rounded font-bold text-white" style={{ backgroundColor: colorMap[s.winner] || '#64748b' }}>
-                                         {s.winner}
-                                     </span>
-                                 </div>
-                                 <p className="text-sm text-slate-600">{s.description}</p>
-                             </div>
-                         ))}
-                    </div>
-
-                    {/* Model Breakdown */}
-                    <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-green-600" />
-                        Strategic Analysis
-                    </h3>
-                    <div className="space-y-8">
-                        {analysis.modelInsights?.map((m, i) => (
-                            <div key={i} className="border-t border-slate-200 pt-6 break-inside-avoid">
-                                <div className="flex items-center justify-between mb-4">
-                                     <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colorMap[m.modelName] || '#64748b' }}></div>
-                                         {m.modelName}
-                                     </h4>
-                                     <span className="font-mono text-sm text-slate-500">Win Rate: {m.winRate}%</span>
-                                </div>
-                                <div className="grid grid-cols-3 gap-6">
-                                    <div>
-                                        <div className="text-xs font-bold text-green-600 uppercase mb-2">Strengths</div>
-                                        <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
-                                            {m.strengths?.map((s, idx) => <li key={idx}>{s}</li>)}
-                                        </ul>
-                                    </div>
-                                    <div>
-                                        <div className="text-xs font-bold text-red-500 uppercase mb-2">Weaknesses</div>
-                                        <ul className="list-disc list-inside text-xs text-slate-600 space-y-1">
-                                            {m.weaknesses?.map((w, idx) => <li key={idx}>{w}</li>)}
-                                        </ul>
-                                    </div>
-                                    <div>
-                                        <div className="text-xs font-bold text-blue-600 uppercase mb-2">Best For</div>
-                                        <div className="flex flex-wrap gap-1">
-                                            {m.bestUseCases?.map((u, idx) => (
-                                                <span key={idx} className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs border border-slate-200">{u}</span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    
-                    <div className="mt-12 pt-6 border-t border-slate-200 text-center text-xs text-slate-400">
-                        Generated by CopyCritic AI Validation Suite
-                    </div>
-                </div>
-            </div>
         </div>
     );
   }
@@ -359,10 +185,10 @@ export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, color
              </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6">
             {/* Option 1: Current Session */}
             <button 
-                onClick={handleAnalyzeCurrent}
+                onClick={() => handleAnalyzeItems(currentItems, 'current')}
                 disabled={currentItems.filter(i => i.status === 'done').length === 0}
                 className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-blue-500/50 rounded-2xl p-8 flex flex-col items-center text-center transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -371,37 +197,41 @@ export const InsightsDashboard: React.FC<Props> = ({ currentItems, onBack, color
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">Analyze Current Session</h3>
                 <p className="text-sm text-slate-400 mb-6">
-                    Generate insights from the {currentItems.filter(i => i.status === 'done').length} completed tests in your current workspace.
+                    Generate insights from the {currentItems.filter(i => i.status === 'done').length} completed tests.
                 </p>
                 <div className="mt-auto px-6 py-2 bg-blue-600 group-hover:bg-blue-500 text-white rounded-lg font-bold text-sm">
                     Generate Report
                 </div>
             </button>
-
-            {/* Option 2: Upload PDF */}
-            <div 
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-green-500/50 rounded-2xl p-8 flex flex-col items-center text-center transition-all cursor-pointer group"
-            >
-                <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <Upload className="w-8 h-8 text-green-500" />
-                </div>
-                <h3 className="text-xl font-bold text-white mb-2">Analyze Historical Report</h3>
-                <p className="text-sm text-slate-400 mb-6">
-                    Upload a previously generated "CopyCritic Report.pdf" to extract insights.
-                </p>
-                <div className="mt-auto px-6 py-2 bg-green-600 group-hover:bg-green-500 text-white rounded-lg font-bold text-sm">
-                    Upload PDF
-                </div>
-                <input 
-                    type="file" 
-                    ref={fileInputRef}
-                    accept="application/pdf"
-                    className="hidden"
-                    onChange={handlePdfUpload}
-                />
-            </div>
         </div>
+        
+        {/* Option 3: Saved Jobs */}
+        {savedJobs.length > 0 && (
+            <div className="mt-12">
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                    <Database className="w-5 h-5 text-purple-400" />
+                    Saved Job History
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {savedJobs.map((job) => (
+                        <div 
+                            key={job.id}
+                            onClick={() => handleAnalyzeItems(job.items, job.id)}
+                            className="bg-slate-800 border border-slate-700 hover:border-purple-500/50 p-4 rounded-xl cursor-pointer transition-colors group"
+                        >
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-bold text-white">{job.name}</span>
+                                <span className="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">{job.items.filter(i => i.status === 'done').length} Tests</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <Clock className="w-3 h-3" />
+                                {new Date(job.timestamp).toLocaleString()}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
     </div>
   );
 };
